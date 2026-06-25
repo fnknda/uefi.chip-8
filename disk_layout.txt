@@ -1,0 +1,9 @@
+label: gpt
+label-id: 9F953C2A-36BC-4A28-A0ED-DCAA89D7E191
+device: disk.img
+unit: sectors
+first-lba: 2048
+last-lba: 133086
+sector-size: 512
+
+disk.img1 : start=        2048, size=      129024, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=5EFEC95E-8CF1-435A-A70B-87C332D6F9BB
