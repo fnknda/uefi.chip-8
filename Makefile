@@ -46,11 +46,11 @@ src/boot.efi: src/boot.so
 		--subsystem=10 \
 		$< $@
 
-src/boot.so: src/boot.o src/graphics.o src/logs.o src/chip8.o
+src/boot.so: src/util.o src/boot.o src/graphics.o src/input.o src/logs.o src/chip8.o
 	$(LD) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 src/boot.o: src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-src/graphics.o src/logs.o src/chip8.o: src/%.o: src/%.c src/%.h
+src/util.o src/graphics.o src/input.o src/logs.o src/chip8.o: src/%.o: src/%.c src/%.h
 	$(CC) $(CFLAGS) -c $< -o $@
