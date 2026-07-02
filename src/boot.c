@@ -4,12 +4,18 @@
 #include "graphics.h"
 #include "input.h"
 #include "logs.h"
+#include "random.h"
 
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 {
 	initLogs(SystemTable->ConOut);
 
 	initInput(SystemTable->ConIn, SystemTable->BootServices);
+
+	if (initRandom(SystemTable->BootServices) != 0) {
+		logInfo(L"[ERROR] Could not init random\r\n");
+		goto end;
+	}
 
 	if (initGraphics(SystemTable->BootServices) != 0) {
 		logInfo(L"[ERROR] Could not init graphics\r\n");

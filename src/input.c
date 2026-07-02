@@ -12,6 +12,17 @@ void initInput(SIMPLE_INPUT_INTERFACE *in, EFI_BOOT_SERVICES *bs)
 	bootServices = bs;
 }
 
+void resetInput(void)
+{
+	EFI_STATUS status;
+	status = uefi_call_wrapper(defaultInput->Reset, 2, defaultInput, FALSE);
+	if (EFI_ERROR(status)) {
+		logInfo(L"Reset(): ");
+		logInfo(hex(status));
+		logInfo(L"\r\n");
+	}
+}
+
 EFI_INPUT_KEY nextInput(void)
 {
 	EFI_STATUS status;

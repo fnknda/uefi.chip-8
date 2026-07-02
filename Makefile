@@ -17,19 +17,24 @@ LDFLAGS = -shared \
 LDLIBS = -lgnuefi -lefi
 
 .PHONY: all run
-all: disk.img
+all: disk.img tags
 
 run: disk.img
 	qemu-system-x86_64 \
 		-drive if=pflash,format=raw,readonly=on,file=/usr/share/edk2/x64/OVMF.4m.fd \
 		-drive format=raw,file=$< \
+		-device virtio-rng-pci \
 		-m 1G
 
 debug: disk.img
 	qemu-system-x86_64 \
 		-drive if=pflash,format=raw,readonly=on,file=/usr/share/edk2/x64/OVMF.4m.fd \
 		-drive format=raw,file=$< \
+		-device virtio-rng-pci \
 		-m 1G -s -S
+
+tags:
+	ctags src/*
 
 disk.img: src/boot.efi
 	dd if=/dev/zero of=$@ bs=1M count=65
@@ -46,11 +51,11 @@ src/boot.efi: src/boot.so
 		--subsystem=10 \
 		$< $@
 
-src/boot.so: src/util.o src/boot.o src/graphics.o src/input.o src/logs.o src/chip8.o
+src/boot.so: src/util.o src/boot.o src/graphics.o src/random.o src/input.o src/logs.o src/chip8.o
 	$(LD) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 src/boot.o: src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-src/util.o src/graphics.o src/input.o src/logs.o src/chip8.o: src/%.o: src/%.c src/%.h
+src/util.o src/graphics.o src/random.o src/input.o src/logs.o src/chip8.o: src/%.o: src/%.c src/%.h
 	$(CC) $(CFLAGS) -c $< -o $@

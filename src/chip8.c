@@ -2,7 +2,10 @@
 
 #include "graphics.h"
 #include "input.h"
+#include "random.h"
 #include "util.h"
+
+#include "banana.h"
 
 #define DISPLAYPOS(x, y) (uint16_t) (0x0100 + (y * 64 + x) / 8)
 
@@ -47,9 +50,7 @@ void initChip8(struct Chip8 *c8)
 {
 	c8->mode = Command;
 
-	for (int i = 0; i < 0x1000; i++) {
-		c8->mem[i] = 0x00; // TODO: Random(?)
-	}
+	randomGetBuffer(c8->mem, 0x1000);
 
 	for (int i = 0; i < sizeof(fonts); i++) {
 		c8->mem[0x50 + i] = fonts[i];
@@ -57,7 +58,36 @@ void initChip8(struct Chip8 *c8)
 
 	c8->reg.I = 0x4457;
 	c8->reg.PC = 0x0200;
-	c8->reg.SP = 0x003E;
+	c8->reg.SP = 0x0040;
+}
+
+void initChip8WithCode(struct Chip8 *c8, uint8_t *buf, size_t size)
+{
+	initChip8(c8);
+
+	for (int i = 0; i < MIN(0x1000 - 0x200, size); i++) {
+		c8->mem[i + 0x200] = buf[i];
+	}
+}
+
+uint16_t push(struct Chip8 *c8, uint16_t value)
+{
+	if (c8->reg.SP == 0x0000) {
+		return 0XFFFF;
+	}
+
+	c8->reg.SP -= 2;
+	*(uint16_t *) (&c8->mem[c8->reg.SP]) = value;
+}
+
+uint16_t pop(struct Chip8 *c8)
+{
+	if (c8->reg.SP <= 0x0040) {
+		return 0XFFFF;
+	}
+
+	c8->reg.SP += 2;
+	return *(uint16_t *) (&c8->mem[c8->reg.SP]);
 }
 
 void clearDisplay(struct Chip8 *c8)
@@ -207,7 +237,6 @@ void editHandleInput(struct Chip8 *c8)
 void interpret(struct Chip8 *c8, uint16_t opcode)
 {
 	if (opcode == 0x0000) { // NOP
-		return;
 	}
 	else if (opcode == 0x00E0) { // ERASE
 		clearDisplay(c8);
@@ -219,122 +248,132 @@ void interpret(struct Chip8 *c8, uint16_t opcode)
 			return;
 		}
 	}
-	else if (opcode & 0xF000 == 0x1000) { // GOTO MMM
+	else if ((opcode & 0xF000) == 0x1000) { // GOTO MMM
 		c8->reg.PC = opcode & 0x0FFF;
 		return;
 	}
-	else if (opcode & 0xF000 == 0x2000) { // DO MMM
+	else if ((opcode & 0xF000) == 0x2000) { // DO MMM
 		uint16_t ret = push(c8, c8->reg.PC + 2);
 		if (ret != 0xFFFF) {
 			c8->reg.PC = opcode & 0x0FFF;
 			return;
 		}
 	}
-	else if (opcode & 0xF000 == 0x3000) { // SKF VX == KK
+	else if ((opcode & 0xF000) == 0x3000) { // SKF VX == KK
 		if (c8->reg.V[(opcode & 0x0F00) >> 8] == opcode & 0x00FF) {
 			c8->reg.PC += 2;
 		}
 	}
-	else if (opcode & 0xF000 == 0x4000) { // SKF VX != KK
+	else if ((opcode & 0xF000) == 0x4000) { // SKF VX != KK
 		if (c8->reg.V[(opcode & 0x0F00) >> 8] != opcode & 0x00FF) {
 			c8->reg.PC += 2;
 		}
 	}
-	else if (opcode & 0xF00F == 0x5000) { // SKF VX == VY
+	else if ((opcode & 0xF00F) == 0x5000) { // SKF VX == VY
 		if (c8->reg.V[(opcode & 0x0F00) >> 8] == c8->reg.V[(opcode & 0x00F0) >> 4]) {
 			c8->reg.PC += 2;
 		}
 	}
-	else if (opcode & 0xF000 == 0x6000) { // VX = KK
+	else if ((opcode & 0xF000) == 0x6000) { // VX = KK
 		c8->reg.V[(opcode & 0x0F00) >> 8] = (opcode & 0x00FF);
 	}
-	else if (opcode & 0xF000 == 0x7000) { // VX += KK
+	else if ((opcode & 0xF000) == 0x7000) { // VX += KK
 		c8->reg.V[(opcode & 0x0F00) >> 8] += (opcode & 0x00FF);
 	}
-	else if (opcode & 0xF00F == 0x8000) { // VX = VY
+	else if ((opcode & 0xF00F) == 0x8000) { // VX = VY
 		c8->reg.V[(opcode & 0x0F00) >> 8] = c8->reg.V[(opcode & 0x00F0) >> 4];
 	}
-	else if (opcode & 0xF00F == 0x8001) { // VX |= VY
+	else if ((opcode & 0xF00F) == 0x8001) { // VX |= VY
 		c8->reg.V[(opcode & 0x0F00) >> 8] |= c8->reg.V[(opcode & 0x00F0) >> 4];
 	}
-	else if (opcode & 0xF00F == 0x8002) { // VX &= VY
+	else if ((opcode & 0xF00F) == 0x8002) { // VX &= VY
 		c8->reg.V[(opcode & 0x0F00) >> 8] &= c8->reg.V[(opcode & 0x00F0) >> 4];
 	}
-	else if (opcode & 0xF00F == 0x8003) { // VX ^= VY
+	else if ((opcode & 0xF00F) == 0x8003) { // VX ^= VY
 		c8->reg.V[(opcode & 0x0F00) >> 8] ^= c8->reg.V[(opcode & 0x00F0) >> 4];
 	}
-	else if (opcode & 0xF00F == 0x8004) { // VX += VY
+	else if ((opcode & 0xF00F) == 0x8004) { // VX += VY
 		c8->reg.V[(opcode & 0x0F00) >> 8] += c8->reg.V[(opcode & 0x00F0) >> 4];
 		if (c8->reg.V[(opcode & 0x0F00) >> 8] > 0xFF) {
 			c8->reg.V[0xF] = 1;
 		}
 	}
-	else if (opcode & 0xF00F == 0x8005) { // VX -= VY
+	else if ((opcode & 0xF00F) == 0x8005) { // VX -= VY
 		if (c8->reg.V[(opcode & 0x0F00) >> 8] < c8->reg.V[(opcode & 0x00F0) >> 4]) {
 			c8->reg.V[0xF] = 0;
 		}
 		c8->reg.V[(opcode & 0x0F00) >> 8] = c8->reg.V[(opcode & 0x00F0) >> 4];
 	}
-	else if (opcode & 0xF00F == 0x9000) { // SKF VX != VY
+	else if ((opcode & 0xF00F) == 0x9000) { // SKF VX != VY
 		if (c8->reg.V[(opcode & 0x0F00) >> 8] != c8->reg.V[(opcode & 0x00F0) >> 4]) {
 			c8->reg.PC += 2;
 		}
 	}
-	else if (opcode & 0xF000 == 0xA000) { // MEM[I] = MMM
+	else if ((opcode & 0xF000) == 0xA000) { // MEM[I] = MMM
 		c8->reg.I = opcode & 0x0FFF;
 	}
-	else if (opcode & 0xF000 == 0xB000) { // GOTO V0+MMM
+	else if ((opcode & 0xF000) == 0xB000) { // GOTO V0+MMM
 		c8->reg.PC = c8->reg.V[0x0] + (opcode & 0x0FFF);
 		return;
 	}
-	else if (opcode & 0xF000 == 0xC000) { // VX = RND & KK
-		c8->reg.V[(opcode & 0x0F00) >> 8] = 0x00 & (opcode & 0x00FF); // TODO: Random
+	else if ((opcode & 0xF000) == 0xC000) { // VX = RND & KK
+		uint8_t value;
+		randomGetBuffer(&value, sizeof value);
+		c8->reg.V[(opcode & 0x0F00) >> 8] = value & (opcode & 0x00FF);
 	}
-	else if (opcode & 0xF000 == 0xD000) { // SHOW N at VX,VY
+	else if ((opcode & 0xF000) == 0xD000) { // SHOW N at VX,VY
 		drawSprite(c8, (opcode & 0x0F00) >> 8, (opcode & 0x00F0) >> 4, (opcode & 0x000F));
 	}
-	else if (opcode & 0xF0FF == 0xE09E) { // SKF VX == Key
-		// TODO: Input
+	else if ((opcode & 0xF0FF) == 0xE09E) { // SKF VX == Key
+		                                     // TODO: Input
 	}
-	else if (opcode & 0xF0FF == 0xE0A1) { // SKF VX != Key
-		// TODO: Input
+	else if ((opcode & 0xF0FF) == 0xE0A1) { // SKF VX != Key
+		                                     // TODO: Input
 	}
-	else if (opcode & 0xFFFF == 0xF000) { // STOP
+	else if ((opcode & 0xFFFF) == 0xF000) { // STOP
 		c8->mode = Command;
+		resetInput();
 		return;
 	}
-	else if (opcode & 0xF0FF == 0xF007) { // VX = Timer
+	else if ((opcode & 0xF0FF) == 0xF007) { // VX = Timer
+		                                     // TODO: Timer
+	}
+	else if ((opcode & 0xF0FF) == 0xF00A) { // VX = Key
+		                                     // TODO: Input
+	}
+	else if ((opcode & 0xF0FF) == 0xF015) {
 		// TODO: Timer
 	}
-	else if (opcode & 0xF0FF == 0xF00A) { // VX = Key
-		// TODO: Input
-	}
-	else if (opcode & 0xF0FF == 0xF015) {
-		// TODO: Timer
-	}
-	else if (opcode & 0xF0FF == 0xF017) {
+	else if ((opcode & 0xF0FF) == 0xF017) {
 		// TODO: Audio
 	}
-	else if (opcode & 0xF0FF == 0xF018) {
+	else if ((opcode & 0xF0FF) == 0xF018) {
 		// TODO: Audio
 	}
-	else if (opcode & 0xF0FF == 0xF01E) {
+	else if ((opcode & 0xF0FF) == 0xF01E) {
 		c8->reg.I += c8->reg.V[(opcode & 0x0F00) >> 8];
 	}
-	else if (opcode & 0xF0FF == 0xF029) {
+	else if ((opcode & 0xF0FF) == 0xF029) {
 		getChar(c8, (opcode & 0x0F00) >> 8);
 	}
-	else if (opcode & 0xF0FF == 0xF033) {
+	else if ((opcode & 0xF0FF) == 0xF033) { // MI=DEC(VX)
+		uint16_t value = c8->reg.V[(opcode & 0x0F00) >> 8];
+		uint8_t dec = 100;
+		for (int i = 0; i < 3; i++) {
+			c8->mem[c8->reg.I + i] = value / dec;
+			value %= dec;
+			dec /= 10;
+		}
 	}
-	else if (opcode & 0xF0FF == 0xF055) {
+	else if ((opcode & 0xF0FF) == 0xF055) {
+		for (int i = 0; i < (opcode & 0x0F00) >> 8; i++) {
+			c8->mem[c8->reg.I + i] = c8->reg.V[i];
+		}
 	}
-	else if (opcode & 0xF0FF == 0xF065) {
-	}
-	else if (opcode & 0xF0FF == 0xF070) {
-	}
-	else if (opcode & 0xF0FF == 0xF071) {
-	}
-	else if (opcode & 0xF0FF == 0xF072) {
+	else if ((opcode & 0xF0FF) == 0xF065) {
+		for (int i = 0; i < (opcode & 0x0F00) >> 8; i++) {
+			c8->reg.V[i] = c8->mem[c8->reg.I + i];
+		}
 	}
 
 	c8->reg.PC += 2;
@@ -343,7 +382,7 @@ void interpret(struct Chip8 *c8, uint16_t opcode)
 void runChip8(void)
 {
 	struct Chip8 c8;
-	initChip8(&c8);
+	initChip8WithCode(&c8, membuffer, membuffer_len);
 
 	while (c8.mode != End) {
 		switch (c8.mode) {
@@ -358,7 +397,7 @@ void runChip8(void)
 				editHandleInput(&c8);
 				break;
 			case Program:
-				uint16_t instruction = c8.mem[c8.reg.PC] | (c8.mem[c8.reg.PC + 1] << 8);
+				uint16_t instruction = (c8.mem[c8.reg.PC] << 8) | c8.mem[c8.reg.PC + 1];
 				interpret(&c8, instruction);
 				renderChip8(&c8);
 				break;

@@ -4,8 +4,8 @@
 #include <efi/efi.h>
 
 void initInput(SIMPLE_INPUT_INTERFACE *in, EFI_BOOT_SERVICES *bs);
+void resetInput(void);
 
 EFI_INPUT_KEY nextInput(void);
-EFI_INPUT_KEY nextInputNoBlock(void);
 
 #endif
