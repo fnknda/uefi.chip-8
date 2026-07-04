@@ -22,7 +22,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
 		goto end;
 	}
 
-	runChip8();
+	runChip8(SystemTable->BootServices);
 
 end:
 	while (1) {

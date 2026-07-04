@@ -38,6 +38,8 @@ struct Registers {
 	uint16_t PC;
 	uint16_t I;
 	uint16_t SP;
+	uint16_t DT;
+	uint16_t ST;
 };
 
 struct Chip8 {
@@ -46,8 +48,27 @@ struct Chip8 {
 	struct Registers reg;
 };
 
-void initChip8(struct Chip8 *c8)
+static EFI_EVENT timerEvent;
+
+VOID EFIAPI *timerEventHandler(IN EFI_EVENT event, IN VOID *ctx)
 {
+	struct Chip8 *c8 = (struct Chip8 *) ctx;
+
+	if (c8->reg.DT > 0) {
+		c8->reg.DT -= 1;
+	}
+
+	if (c8->reg.ST > 0) {
+		c8->reg.ST -= 1;
+	}
+}
+
+void initChip8(EFI_BOOT_SERVICES *bs, struct Chip8 *c8)
+{
+	uefi_call_wrapper(bs->CreateEvent, 5, EVT_TIMER, TPL_CALLBACK, timerEventHandler, c8, NULL, &timerEvent);
+
+	uefi_call_wrapper(bs->SetTimer, timerEvent, TimerPeriodic, 20 * 10'000); // 20ms (in 100ns)
+
 	c8->mode = Command;
 
 	randomGetBuffer(c8->mem, 0x1000);
@@ -59,11 +80,13 @@ void initChip8(struct Chip8 *c8)
 	c8->reg.I = 0x4457;
 	c8->reg.PC = 0x0200;
 	c8->reg.SP = 0x0040;
+	c8->reg.DT = 0;
+	c8->reg.ST = 0;
 }
 
-void initChip8WithCode(struct Chip8 *c8, uint8_t *buf, size_t size)
+void initChip8WithCode(EFI_BOOT_SERVICES *bs, struct Chip8 *c8, uint8_t *buf, size_t size)
 {
-	initChip8(c8);
+	initChip8(bs, c8);
 
 	for (int i = 0; i < MIN(0x1000 - 0x200, size); i++) {
 		c8->mem[i + 0x200] = buf[i];
@@ -82,12 +105,13 @@ uint16_t push(struct Chip8 *c8, uint16_t value)
 
 uint16_t pop(struct Chip8 *c8)
 {
-	if (c8->reg.SP <= 0x0040) {
+	if (c8->reg.SP >= 0x0040) {
 		return 0XFFFF;
 	}
 
+	uint16_t retval = *(uint16_t *) (&c8->mem[c8->reg.SP]);
 	c8->reg.SP += 2;
-	return *(uint16_t *) (&c8->mem[c8->reg.SP]);
+	return retval;
 }
 
 void clearDisplay(struct Chip8 *c8)
@@ -188,6 +212,7 @@ void commandHandleInput(struct Chip8 *c8)
 				addressBitIndex = 12;
 				c8->reg.PC = 0x0200;
 				c8->mode = Program;
+				clearDisplay(c8);
 				break;
 		}
 	}
@@ -260,12 +285,12 @@ void interpret(struct Chip8 *c8, uint16_t opcode)
 		}
 	}
 	else if ((opcode & 0xF000) == 0x3000) { // SKF VX == KK
-		if (c8->reg.V[(opcode & 0x0F00) >> 8] == opcode & 0x00FF) {
+		if (c8->reg.V[(opcode & 0x0F00) >> 8] == (opcode & 0x00FF)) {
 			c8->reg.PC += 2;
 		}
 	}
 	else if ((opcode & 0xF000) == 0x4000) { // SKF VX != KK
-		if (c8->reg.V[(opcode & 0x0F00) >> 8] != opcode & 0x00FF) {
+		if (c8->reg.V[(opcode & 0x0F00) >> 8] != (opcode & 0x00FF)) {
 			c8->reg.PC += 2;
 		}
 	}
@@ -302,7 +327,19 @@ void interpret(struct Chip8 *c8, uint16_t opcode)
 		if (c8->reg.V[(opcode & 0x0F00) >> 8] < c8->reg.V[(opcode & 0x00F0) >> 4]) {
 			c8->reg.V[0xF] = 0;
 		}
-		c8->reg.V[(opcode & 0x0F00) >> 8] = c8->reg.V[(opcode & 0x00F0) >> 4];
+		c8->reg.V[(opcode & 0x0F00) >> 8] -= c8->reg.V[(opcode & 0x00F0) >> 4];
+	}
+	else if ((opcode & 0xF00F) == 0x8006) { // VX=SHR(VX), VF
+		c8->reg.V[0xF] = c8->reg.V[(opcode & 0x0F00) >> 8] & 0x0001;
+		c8->reg.V[(opcode & 0x0F00) >> 8] /= 2;
+	}
+	else if ((opcode & 0xF00F) == 0x8007) { // VX=VY-VX, VF
+		c8->reg.V[0xF] = c8->reg.V[(opcode & 0x00F0) >> 4] > c8->reg.V[(opcode & 0x0F00) >> 8];
+		c8->reg.V[(opcode & 0x0F00) >> 8] = c8->reg.V[(opcode & 0x00F0) >> 4] - c8->reg.V[(opcode & 0x0F00) >> 8];
+	}
+	else if ((opcode & 0xF00F) == 0x800E) { // VX=SHL(VX), VF
+		c8->reg.V[0xF] = (c8->reg.V[(opcode & 0x0F00) >> 8] & 0x8000) >> 15;
+		c8->reg.V[(opcode & 0x0F00) >> 8] *= 2;
 	}
 	else if ((opcode & 0xF00F) == 0x9000) { // SKF VX != VY
 		if (c8->reg.V[(opcode & 0x0F00) >> 8] != c8->reg.V[(opcode & 0x00F0) >> 4]) {
@@ -325,10 +362,10 @@ void interpret(struct Chip8 *c8, uint16_t opcode)
 		drawSprite(c8, (opcode & 0x0F00) >> 8, (opcode & 0x00F0) >> 4, (opcode & 0x000F));
 	}
 	else if ((opcode & 0xF0FF) == 0xE09E) { // SKF VX == Key
-		                                     // TODO: Input
+		                                     // SIMULATE NO KEY DOWN (DON'T SKIP)
 	}
 	else if ((opcode & 0xF0FF) == 0xE0A1) { // SKF VX != Key
-		                                     // TODO: Input
+		c8->reg.PC += 2;
 	}
 	else if ((opcode & 0xFFFF) == 0xF000) { // STOP
 		c8->mode = Command;
@@ -336,19 +373,21 @@ void interpret(struct Chip8 *c8, uint16_t opcode)
 		return;
 	}
 	else if ((opcode & 0xF0FF) == 0xF007) { // VX = Timer
-		                                     // TODO: Timer
+		c8->reg.V[(opcode & 0x0F00) >> 8] = c8->reg.DT;
 	}
 	else if ((opcode & 0xF0FF) == 0xF00A) { // VX = Key
-		                                     // TODO: Input
+		EFI_INPUT_KEY key = nextInput();
+		while (key.ScanCode != 0x00) {
+			key = nextInput();
+		}
+
+		c8->reg.V[(opcode & 0x0F00) >> 8] = unicodetoint(key.UnicodeChar);
 	}
 	else if ((opcode & 0xF0FF) == 0xF015) {
-		// TODO: Timer
-	}
-	else if ((opcode & 0xF0FF) == 0xF017) {
-		// TODO: Audio
+		c8->reg.DT = c8->reg.V[(opcode & 0x0F00) >> 8];
 	}
 	else if ((opcode & 0xF0FF) == 0xF018) {
-		// TODO: Audio
+		c8->reg.ST = c8->reg.V[(opcode & 0x0F00) >> 8];
 	}
 	else if ((opcode & 0xF0FF) == 0xF01E) {
 		c8->reg.I += c8->reg.V[(opcode & 0x0F00) >> 8];
@@ -366,12 +405,12 @@ void interpret(struct Chip8 *c8, uint16_t opcode)
 		}
 	}
 	else if ((opcode & 0xF0FF) == 0xF055) {
-		for (int i = 0; i < (opcode & 0x0F00) >> 8; i++) {
+		for (int i = 0; i <= (opcode & 0x0F00) >> 8; i++) {
 			c8->mem[c8->reg.I + i] = c8->reg.V[i];
 		}
 	}
 	else if ((opcode & 0xF0FF) == 0xF065) {
-		for (int i = 0; i < (opcode & 0x0F00) >> 8; i++) {
+		for (int i = 0; i <= (opcode & 0x0F00) >> 8; i++) {
 			c8->reg.V[i] = c8->mem[c8->reg.I + i];
 		}
 	}
@@ -379,10 +418,10 @@ void interpret(struct Chip8 *c8, uint16_t opcode)
 	c8->reg.PC += 2;
 }
 
-void runChip8(void)
+void runChip8(EFI_BOOT_SERVICES *bs)
 {
 	struct Chip8 c8;
-	initChip8WithCode(&c8, membuffer, membuffer_len);
+	initChip8WithCode(bs, &c8, membuffer, membuffer_len);
 
 	while (c8.mode != End) {
 		switch (c8.mode) {

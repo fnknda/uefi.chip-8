@@ -53,7 +53,7 @@ int randomGetBuffer(UINT8 *dst, UINTN size)
 
 	status = uefi_call_wrapper(rng->GetRNG, 4, rng, NULL, dst, size);
 	if (EFI_ERROR(status)) {
-		logInfo(L"HandleProtocol(): ");
+		logInfo(L"GetRNG(): ");
 		logInfo(hex(status));
 		logInfo(L"\r\n");
 		return -1;
