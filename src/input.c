@@ -3,6 +3,9 @@
 #include "logs.h"
 #include "util.h"
 
+static EFI_GUID UsbIoProtocolGuid = EFI_USB_IO_PROTOCOL_GUID;
+static EFI_USB_IO_PROTOCOL *usb = NULL;
+
 SIMPLE_INPUT_INTERFACE *defaultInput = NULL;
 EFI_BOOT_SERVICES *bootServices = NULL;
 

@@ -11,7 +11,9 @@ uint16_t unicodetoint(uint16_t unicode)
 	else if (unicode >= 'A' && unicode <= 'F') {
 		return unicode - 'A' + 0xa;
 	}
-	else return 0xffff;
+	else {
+		return 0xffff;
+	}
 }
 
 WCHAR *hex(UINTN num)

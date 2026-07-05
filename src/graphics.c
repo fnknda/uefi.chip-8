@@ -4,8 +4,8 @@
 #include "util.h"
 
 extern EFI_GUID gEfiGraphicsOutputProtocolGuid;
-
 static EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
+
 static uint32_t pixsz = 0;
 static uint32_t linesize = 0;
 
@@ -20,6 +20,11 @@ int initGraphics(EFI_BOOT_SERVICES *bs)
 		logInfo(L"LocateHandle(): ");
 		logInfo(hex(status));
 		logInfo(L"\r\n");
+		return -1;
+	}
+
+	if (nhandles == 0) {
+		logInfo(L"LocateHandle(): No available handle found for GraphicsOutputProtocol\r\n");
 		return -1;
 	}
 

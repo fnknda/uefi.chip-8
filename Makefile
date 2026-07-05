@@ -17,13 +17,13 @@ LDFLAGS = -shared \
 LDLIBS = -lgnuefi -lefi
 
 .PHONY: all run
-all: disk.img tags
+all: disk.img tags boot.so.debug
 
 run: disk.img
 	qemu-system-x86_64 \
 		-drive if=pflash,format=raw,readonly=on,file=/usr/share/edk2/x64/OVMF.4m.fd \
 		-drive format=raw,file=$< \
-		-device virtio-rng-pci \
+		-object rng-random,id=rng0,filename=/dev/urandom -device virtio-rng-pci,rng=rng0 \
 		-m 1G
 
 debug: disk.img
@@ -51,11 +51,14 @@ src/boot.efi: src/boot.so
 		--subsystem=10 \
 		$< $@
 
-src/boot.so: src/util.o src/boot.o src/graphics.o src/random.o src/input.o src/logs.o src/chip8.o
+boot.so.debug: src/boot.so
+	objcopy --only-keep-debug $^ $@
+
+src/boot.so: src/util.o src/boot.o src/graphics.o src/debug.o src/random.o src/input.o src/logs.o src/chip8.o
 	$(LD) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 src/boot.o: src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-src/util.o src/graphics.o src/random.o src/input.o src/logs.o src/chip8.o: src/%.o: src/%.c src/%.h
+src/util.o src/graphics.o src/debug.o src/random.o src/input.o src/logs.o src/chip8.o: src/%.o: src/%.c src/%.h
 	$(CC) $(CFLAGS) -c $< -o $@
