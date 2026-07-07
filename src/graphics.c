@@ -5,13 +5,16 @@
 
 static EFI_GUID EfiGraphicsOutputProtocolGuid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 static EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
+static EFI_BOOT_SERVICES *bs = NULL;
 
 static uint32_t pixsz = 0;
 static uint32_t linesize = 0;
 
-int initGraphics(EFI_BOOT_SERVICES *bs)
+int initGraphics(EFI_BOOT_SERVICES *bootServices)
 {
 	EFI_STATUS status;
+
+	bs = bootServices;
 
 	status = uefi_call_wrapper(bs->LocateProtocol, 3, &EfiGraphicsOutputProtocolGuid, NULL, &gop);
 	if (EFI_ERROR(status)) {
@@ -35,18 +38,24 @@ int initGraphics(EFI_BOOT_SERVICES *bs)
 
 void setDisplayBuffer(uint8_t *buffer)
 {
-	static uint32_t whitePixel = 0x00ffffff;
-	static uint32_t blackPixel = 0x00000000;
+	static const uint32_t WHITE = 0x00ffffff;
+	static const uint32_t BLACK = 0x00000000;
+
+	uint32_t *framebuffer = (uint32_t *) gop->Mode->FrameBufferBase;
 
 	for (int y = 0; y < 32; y++) {
-		for (int dispY = y * pixsz; dispY < (y + 1) * pixsz; dispY++) {
-			for (int x = 0; x < 64; x++) {
-				uint8_t pixelByte = buffer[(y * 64 + x) / 8];
-				for (int dispX = x * pixsz; dispX < (x + 1) * pixsz; dispX++) {
-					uint32_t pixel = pixelByte & (1 << ((7 - x) % 8)) ? whitePixel : blackPixel;
-					((uint32_t *) gop->Mode->FrameBufferBase)[dispY * linesize + dispX] = pixel;
-				}
+		uint32_t line[64 * pixsz];
+		for (int x = 0; x < 64; x++) {
+			uint8_t pixelByte = buffer[(y * 64 + x) / 8];
+			uint8_t mask = 1 << (7 - (x & 7));
+			uint32_t color = pixelByte & mask ? WHITE : BLACK;
+			for (int i = 0; i < pixsz; i++) {
+				line[(x * pixsz) + i] = color;
 			}
+		}
+
+		for (int i = 0; i < pixsz; i++) {
+			uefi_call_wrapper(bs->CopyMem, 3, &framebuffer[((y * pixsz) + i) * linesize], line, sizeof(line));
 		}
 	}
 }

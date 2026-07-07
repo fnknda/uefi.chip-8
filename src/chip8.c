@@ -146,7 +146,8 @@ void clearDisplay(void)
 	}
 }
 
-// TODO: Check for collision
+// TODO: Colisão
+// TODO: Wrapping/Cliping
 int drawSprite(uint8_t x, uint8_t y, uint8_t size)
 {
 	uint8_t posX = c8.reg.V[x];
@@ -348,15 +349,15 @@ void interpret(uint16_t opcode)
 		c8.reg.V[(opcode & 0x0F00) >> 8] -= c8.reg.V[(opcode & 0x00F0) >> 4];
 	}
 	else if ((opcode & 0xF00F) == 0x8006) { // VX=SHR(VX), VF
-		c8.reg.V[0xF] = c8.reg.V[(opcode & 0x0F00) >> 8] & 0x0001;
+		c8.reg.V[0xF] = c8.reg.V[(opcode & 0x0F00) >> 8] & 0x01;
 		c8.reg.V[(opcode & 0x0F00) >> 8] /= 2;
 	}
 	else if ((opcode & 0xF00F) == 0x8007) { // VX=VY-VX, VF
-		c8.reg.V[0xF] = c8.reg.V[(opcode & 0x00F0) >> 4] > c8.reg.V[(opcode & 0x0F00) >> 8];
+		c8.reg.V[0xF] = c8.reg.V[(opcode & 0x00F0) >> 4] >= c8.reg.V[(opcode & 0x0F00) >> 8];
 		c8.reg.V[(opcode & 0x0F00) >> 8] = c8.reg.V[(opcode & 0x00F0) >> 4] - c8.reg.V[(opcode & 0x0F00) >> 8];
 	}
 	else if ((opcode & 0xF00F) == 0x800E) { // VX=SHL(VX), VF
-		c8.reg.V[0xF] = (c8.reg.V[(opcode & 0x0F00) >> 8] & 0x8000) >> 15;
+		c8.reg.V[0xF] = (c8.reg.V[(opcode & 0x0F00) >> 8] >> 7) & 0x01;
 		c8.reg.V[(opcode & 0x0F00) >> 8] *= 2;
 	}
 	else if ((opcode & 0xF00F) == 0x9000) { // SKF VX != VY
@@ -383,7 +384,7 @@ void interpret(uint16_t opcode)
 		                                     // SIMULATE NO KEY DOWN (DON'T SKIP)
 	}
 	else if ((opcode & 0xF0FF) == 0xE0A1) { // SKF VX != Key
-		c8.reg.PC += 2;
+		c8.reg.PC += 2;                      // SIMULATE NO KEY DOWN (SKIP)
 	}
 	else if ((opcode & 0xFFFF) == 0xF000) { // STOP
 		c8.mode = Command;
