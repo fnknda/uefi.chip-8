@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -O3 \
+CFLAGS = -O2 \
 			-fpic \
 			-ffreestanding \
 			-fno-stack-protector \
@@ -24,7 +24,7 @@ run: disk.img
 	qemu-system-x86_64 \
 		-drive if=pflash,format=raw,readonly=on,file=/usr/share/edk2/x64/OVMF.4m.fd \
 		-drive format=raw,file=$< \
-		-object rng-random,id=rng0,filename=/dev/urandom -device virtio-rng-pci,rng=rng0 \
+		-device virtio-rng-pci \
 		-m 1G
 
 debug: disk.img

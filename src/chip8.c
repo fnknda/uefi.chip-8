@@ -69,8 +69,9 @@ int initChip8(EFI_BOOT_SERVICES *bs)
 
 	c8.mode = Command;
 
-	// FIXME: Random not working
-	randomGetBuffer(c8.mem, 0x1000);
+	if (randomGetBuffer(c8.mem, 0x1000) == -1) {
+		return -1;
+	}
 
 	for (int i = 0; i < sizeof(fonts); i++) {
 		c8.mem[0x50 + i] = fonts[i];
