@@ -25,7 +25,7 @@ int initDebug(EFI_BOOT_SERVICES *bs)
 		return -1;
 	}
 
-	for (int i = 0; i < nhandles; i++) {
+	for (int i = 0; i < nhandles / sizeof(EFI_HANDLE); i++) {
 		status = uefi_call_wrapper(bs->HandleProtocol, 3, handles[i], &EfiLoadedImageProtocolGuid, &li);
 		if (EFI_ERROR(status)) {
 			logInfo(L"HandleProtocol(): ");
