@@ -11,22 +11,22 @@
 
 #define DISPLAYPOS(x, y) (uint16_t) (0x0100 + (y * 64 + x) / 8)
 
-static uint8_t fonts[] = {0xF0, 0x90, 0x90, 0x90, 0xF0,
-                          0x20, 0x60, 0x20, 0x20, 0x70,
-                          0xF0, 0x10, 0xF0, 0x80, 0xF0,
-                          0xF0, 0x10, 0xF0, 0x10, 0xF0,
-                          0x90, 0x90, 0xF0, 0x10, 0x10,
-                          0xF0, 0x80, 0xF0, 0x10, 0xF0,
-                          0xF0, 0x80, 0xF0, 0x90, 0xF0,
-                          0xF0, 0x10, 0x20, 0x40, 0x40,
-                          0xF0, 0x90, 0xF0, 0x90, 0xF0,
-                          0xF0, 0x90, 0xF0, 0x10, 0xF0,
-                          0xF0, 0x90, 0xF0, 0x90, 0x90,
-                          0xE0, 0x90, 0xE0, 0x90, 0xE0,
-                          0xF0, 0x80, 0x80, 0x80, 0xF0,
-                          0xE0, 0x90, 0x90, 0x90, 0xE0,
-                          0xF0, 0x80, 0xF0, 0x80, 0xF0,
-                          0xF0, 0x80, 0xF0, 0x80, 0x80};
+static const uint8_t fonts[] = {0xF0, 0x90, 0x90, 0x90, 0xF0,
+                                0x20, 0x60, 0x20, 0x20, 0x70,
+                                0xF0, 0x10, 0xF0, 0x80, 0xF0,
+                                0xF0, 0x10, 0xF0, 0x10, 0xF0,
+                                0x90, 0x90, 0xF0, 0x10, 0x10,
+                                0xF0, 0x80, 0xF0, 0x10, 0xF0,
+                                0xF0, 0x80, 0xF0, 0x90, 0xF0,
+                                0xF0, 0x10, 0x20, 0x40, 0x40,
+                                0xF0, 0x90, 0xF0, 0x90, 0xF0,
+                                0xF0, 0x90, 0xF0, 0x10, 0xF0,
+                                0xF0, 0x90, 0xF0, 0x90, 0x90,
+                                0xE0, 0x90, 0xE0, 0x90, 0xE0,
+                                0xF0, 0x80, 0x80, 0x80, 0xF0,
+                                0xE0, 0x90, 0x90, 0x90, 0xE0,
+                                0xF0, 0x80, 0xF0, 0x80, 0xF0,
+                                0xF0, 0x80, 0xF0, 0x80, 0x80};
 
 enum Mode {
 	Command,
@@ -52,7 +52,7 @@ static struct Chip8 {
 
 static EFI_EVENT timerEvent;
 
-VOID EFIAPI *timerEventHandler(IN EFI_EVENT event, IN VOID *ctx)
+VOID EFIAPI timerEventHandler(IN EFI_EVENT event, IN VOID *ctx)
 {
 	if (c8.reg.DT > 0) {
 		c8.reg.DT -= 1;
@@ -91,7 +91,7 @@ int initChip8(EFI_BOOT_SERVICES *bs)
 		return -1;
 	}
 	else {
-		status = uefi_call_wrapper(bs->SetTimer, 3, timerEvent, TimerPeriodic, 20 * 10'000); // 20ms (in 100ns)
+		status = uefi_call_wrapper(bs->SetTimer, 3, timerEvent, TimerPeriodic, 166667); // 60Hz
 		if (EFI_ERROR(status)) {
 			logInfo(L"SetTimer(): ");
 			logInfo(hex(status));
@@ -116,20 +116,22 @@ int initChip8WithCode(EFI_BOOT_SERVICES *bs, uint8_t *buf, size_t size)
 	return 0;
 }
 
-uint16_t push(uint16_t value)
+int push(uint16_t value)
 {
 	if (c8.reg.SP == 0x0000) {
-		return 0XFFFF;
+		return -1;
 	}
 
 	c8.reg.SP -= 2;
 	*(uint16_t *) (&c8.mem[c8.reg.SP]) = value;
+
+	return 0;
 }
 
-uint16_t pop(void)
+int pop(void)
 {
 	if (c8.reg.SP >= 0x0040) {
-		return 0XFFFF;
+		return -1;
 	}
 
 	uint16_t retval = *(uint16_t *) (&c8.mem[c8.reg.SP]);
@@ -144,7 +146,8 @@ void clearDisplay(void)
 	}
 }
 
-void drawSprite(uint8_t x, uint8_t y, uint8_t size)
+// TODO: Check for collision
+int drawSprite(uint8_t x, uint8_t y, uint8_t size)
 {
 	uint8_t posX = c8.reg.V[x];
 	uint8_t posY = c8.reg.V[y];
@@ -238,8 +241,8 @@ void commandHandleInput(void)
 		return;
 	}
 	else if (key.ScanCode == 0x00) {
-		uint16_t value = unicodetoint(key.UnicodeChar);
-		if (value != 0XFFFF) {
+		int value = unicodetoint(key.UnicodeChar);
+		if (value != -1) {
 			c8.reg.I = (c8.reg.I & ~(0xf << addressBitIndex)) + (value << addressBitIndex);
 			if (addressBitIndex == 0) {
 				addressBitIndex = 12;
@@ -264,8 +267,8 @@ void editHandleInput(void)
 		c8.mode = Command;
 	}
 	else if (key.ScanCode == 0x00) {
-		uint16_t value = unicodetoint(key.UnicodeChar);
-		if (value != 0XFFFF) {
+		int value = unicodetoint(key.UnicodeChar);
+		if (value != -1) {
 			c8.mem[c8.reg.I] = (c8.mem[c8.reg.I] & ~(0xf << dataBitIndex)) + (value << dataBitIndex);
 			if (dataBitIndex == 0) {
 				dataBitIndex = 4;
@@ -285,8 +288,8 @@ void interpret(uint16_t opcode)
 		clearDisplay();
 	}
 	else if (opcode == 0x00EE) { // RETURN
-		uint16_t ret = pop();
-		if (ret != 0XFFFF) {
+		int ret = pop();
+		if (ret != -1) {
 			c8.reg.PC = ret;
 			return;
 		}
@@ -296,8 +299,8 @@ void interpret(uint16_t opcode)
 		return;
 	}
 	else if ((opcode & 0xF000) == 0x2000) { // DO MMM
-		uint16_t ret = push(c8.reg.PC + 2);
-		if (ret != 0xFFFF) {
+		int ret = push(c8.reg.PC + 2);
+		if (ret != -1) {
 			c8.reg.PC = opcode & 0x0FFF;
 			return;
 		}

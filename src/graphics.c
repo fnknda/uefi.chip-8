@@ -13,59 +13,22 @@ int initGraphics(EFI_BOOT_SERVICES *bs)
 {
 	EFI_STATUS status;
 
-	EFI_HANDLE handles[50];
-	UINTN nhandles = sizeof(handles);
-	status = uefi_call_wrapper(bs->LocateHandle, 5, ByProtocol, &EfiGraphicsOutputProtocolGuid, NULL, &nhandles, handles);
+	status = uefi_call_wrapper(bs->LocateProtocol, 3, &EfiGraphicsOutputProtocolGuid, NULL, &gop);
 	if (EFI_ERROR(status)) {
-		logInfo(L"LocateHandle(): ");
+		logInfo(L"LocateProtocol(): ");
 		logInfo(hex(status));
 		logInfo(L"\r\n");
 		return -1;
 	}
-
-	if (nhandles == 0) {
-		logInfo(L"LocateHandle(): No available handle found for GraphicsOutputProtocol\r\n");
+	else if (gop == NULL) {
+		logInfo(L"LocateProtocol(): Success, but interface is NULL...\r\n");
 		return -1;
 	}
 
-	for (int i = 0; i < nhandles / sizeof(EFI_HANDLE); i++) {
-		status = uefi_call_wrapper(bs->HandleProtocol, 3, handles[i], &EfiGraphicsOutputProtocolGuid, &gop);
-		if (EFI_ERROR(status)) {
-			logInfo(L"HandleProtocol(): ");
-			logInfo(hex(status));
-			logInfo(L"\r\n");
-			continue;
-		}
-		else if (gop == NULL) {
-			logInfo(L"HandleProtocol(): Success, but NULL...\r\n");
-			continue;
-		}
-		else {
-			break;
-		}
-
-		gop = NULL;
-	}
-
-	if (gop == NULL) {
-		logInfo(L"HandleProtocol(): Success, but NULL...\r\n");
-		return -1;
-	}
-
-	UINTN infosz;
-	EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info;
-	status = uefi_call_wrapper(gop->QueryMode, 4, gop, gop->Mode->Mode, &infosz, &info);
-	if (EFI_ERROR(status)) {
-		logInfo(L"QueryMode: ");
-		logInfo(hex(status));
-		logInfo(L"\r\n");
-		return -1;
-	}
-
-	uint32_t width = info->HorizontalResolution;
-	uint32_t height = info->VerticalResolution;
+	uint32_t width = gop->Mode->Info->HorizontalResolution;
+	uint32_t height = gop->Mode->Info->VerticalResolution;
 	pixsz = (width / 2 < height) ? width / 64 : height / 32;
-	linesize = info->PixelsPerScanLine;
+	linesize = gop->Mode->Info->PixelsPerScanLine;
 
 	return 0;
 }

@@ -32,6 +32,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
 	runChip8(SystemTable->BootServices);
 
 end:
-	while (1) {
-	}
+	logInfo(L"Exiting... Press any key to continue.");
+	nextInput();
+	return EFI_SUCCESS;
 }
