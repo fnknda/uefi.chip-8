@@ -3,7 +3,7 @@
 #include "logs.h"
 #include "util.h"
 
-extern EFI_GUID gEfiGraphicsOutputProtocolGuid;
+static EFI_GUID EfiGraphicsOutputProtocolGuid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 static EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
 
 static uint32_t pixsz = 0;
@@ -15,7 +15,7 @@ int initGraphics(EFI_BOOT_SERVICES *bs)
 
 	EFI_HANDLE handles[50];
 	UINTN nhandles = sizeof(handles);
-	status = uefi_call_wrapper(bs->LocateHandle, 5, ByProtocol, &gEfiGraphicsOutputProtocolGuid, NULL, &nhandles, handles);
+	status = uefi_call_wrapper(bs->LocateHandle, 5, ByProtocol, &EfiGraphicsOutputProtocolGuid, NULL, &nhandles, handles);
 	if (EFI_ERROR(status)) {
 		logInfo(L"LocateHandle(): ");
 		logInfo(hex(status));
@@ -29,7 +29,7 @@ int initGraphics(EFI_BOOT_SERVICES *bs)
 	}
 
 	for (int i = 0; i < nhandles; i++) {
-		status = uefi_call_wrapper(bs->HandleProtocol, 3, handles[i], &gEfiGraphicsOutputProtocolGuid, &gop);
+		status = uefi_call_wrapper(bs->HandleProtocol, 3, handles[i], &EfiGraphicsOutputProtocolGuid, &gop);
 		if (EFI_ERROR(status)) {
 			logInfo(L"HandleProtocol(): ");
 			logInfo(hex(status));
@@ -70,20 +70,20 @@ int initGraphics(EFI_BOOT_SERVICES *bs)
 	return 0;
 }
 
-void setPixel(uint32_t x, uint32_t y, uint8_t color)
+void setDisplayBuffer(uint8_t *buffer)
 {
-	static uint32_t white = 0x00ffffff;
-	static uint32_t black = 0x00000000;
+	static uint32_t whitePixel = 0x00ffffff;
+	static uint32_t blackPixel = 0x00000000;
 
-	if (x > 64 || y > 32 || gop == NULL) {
-		return;
-	}
-
-	uint32_t pixel = color ? white : black;
-
-	for (int h = y * pixsz; h < (y + 1) * pixsz; h++) {
-		for (int w = x * pixsz; w < (x + 1) * pixsz; w++) {
-			((uint32_t *) gop->Mode->FrameBufferBase)[h * linesize + w] = pixel;
+	for (int y = 0; y < 32; y++) {
+		for (int dispY = y * pixsz; dispY < (y + 1) * pixsz; dispY++) {
+			for (int x = 0; x < 64; x++) {
+				uint8_t pixelByte = buffer[(y * 64 + x) / 8];
+				for (int dispX = x * pixsz; dispX < (x + 1) * pixsz; dispX++) {
+					uint32_t pixel = pixelByte & (1 << ((7 - x) % 8)) ? whitePixel : blackPixel;
+					((uint32_t *) gop->Mode->FrameBufferBase)[dispY * linesize + dispX] = pixel;
+				}
+			}
 		}
 	}
 }

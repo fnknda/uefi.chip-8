@@ -206,12 +206,7 @@ void renderStatusBarWithData(void)
 
 void renderChip8(void)
 {
-	for (int y = 0; y < 32; y++) {
-		for (int x = 0; x < 64; x++) {
-			uint8_t pixel = c8.mem[DISPLAYPOS(x, y)] >> (7 - (x % 8)) & 1;
-			setPixel(x, y, pixel);
-		}
-	}
+	setDisplayBuffer(&c8.mem[0x100]);
 }
 
 void commandHandleInput(void)
@@ -340,15 +335,12 @@ void interpret(uint16_t opcode)
 		c8.reg.V[(opcode & 0x0F00) >> 8] ^= c8.reg.V[(opcode & 0x00F0) >> 4];
 	}
 	else if ((opcode & 0xF00F) == 0x8004) { // VX += VY
-		c8.reg.V[(opcode & 0x0F00) >> 8] += c8.reg.V[(opcode & 0x00F0) >> 4];
-		if (c8.reg.V[(opcode & 0x0F00) >> 8] > 0xFF) {
-			c8.reg.V[0xF] = 1;
-		}
+		int16_t res = (int16_t) c8.reg.V[(opcode & 0x0F00) >> 8] + (int16_t) c8.reg.V[(opcode & 0x00F0) >> 4];
+		c8.reg.V[0xF] = res > 0xFF;
+		c8.reg.V[(opcode & 0x0F00) >> 8] = res & 0x00FF;
 	}
 	else if ((opcode & 0xF00F) == 0x8005) { // VX -= VY
-		if (c8.reg.V[(opcode & 0x0F00) >> 8] < c8.reg.V[(opcode & 0x00F0) >> 4]) {
-			c8.reg.V[0xF] = 0;
-		}
+		c8.reg.V[0xF] = c8.reg.V[(opcode & 0x0F00) >> 8] >= c8.reg.V[(opcode & 0x00F0) >> 4];
 		c8.reg.V[(opcode & 0x0F00) >> 8] -= c8.reg.V[(opcode & 0x00F0) >> 4];
 	}
 	else if ((opcode & 0xF00F) == 0x8006) { // VX=SHR(VX), VF

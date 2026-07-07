@@ -1,5 +1,6 @@
 CC = gcc
-CFLAGS = -fpic \
+CFLAGS = -O3 \
+			-fpic \
 			-ffreestanding \
 			-fno-stack-protector \
 			-fno-stack-check \
@@ -16,7 +17,7 @@ LDFLAGS = -shared \
 			 /usr/lib/crt0-efi-x86_64.o
 LDLIBS = -lgnuefi -lefi
 
-.PHONY: all run
+.PHONY: all run debug tags
 all: disk.img tags boot.so.debug
 
 run: disk.img

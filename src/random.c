@@ -69,6 +69,7 @@ int initRandom(EFI_BOOT_SERVICES *bs)
 int randomGetBuffer(UINT8 *dst, UINTN size)
 {
 	EFI_STATUS status;
+	bool found = false;
 
 	for (int algo = 0; algo < algos_len; algo++) {
 		status = uefi_call_wrapper(rng->GetRNG, 4, rng, NULL, dst, size);
@@ -77,8 +78,9 @@ int randomGetBuffer(UINT8 *dst, UINTN size)
 		}
 		else {
 			logInfo(L"FOUND ALGO\r\n");
+			found = true;
 		}
 	}
 
-	return 0;
+	return found ? 0 : -1;
 }
