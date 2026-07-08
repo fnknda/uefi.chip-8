@@ -1,5 +1,3 @@
-// TODO: Arrumar
-
 #include "random.h"
 
 #include "logs.h"

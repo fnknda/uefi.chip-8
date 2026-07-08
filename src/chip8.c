@@ -7,9 +7,9 @@
 #include "random.h"
 #include "util.h"
 
-#include "banana.h"
+#include "zero.h"
 
-#define DISPLAYPOS(x, y) (uint16_t) (0x0100 + (y * 64 + x) / 8)
+#define DISPLAYPOS(x, y) (uint16_t) (0x0100 + (((y * 64 + x) / 8) % 0x0100))
 
 static const uint8_t fonts[] = {0xF0, 0x90, 0x90, 0x90, 0xF0,
                                 0x20, 0x60, 0x20, 0x20, 0x70,
@@ -37,11 +37,12 @@ enum Mode {
 
 struct Registers {
 	uint8_t V[16];
-	uint16_t PC;
 	uint16_t I;
+
+	uint16_t PC;
 	uint16_t SP;
-	uint16_t DT;
-	uint16_t ST;
+	uint8_t DT;
+	uint8_t ST;
 };
 
 static struct Chip8 {
@@ -63,6 +64,18 @@ VOID EFIAPI timerEventHandler(IN EFI_EVENT event, IN VOID *ctx)
 	}
 }
 
+void resetRegisters(void)
+{
+	for (int i = 0; i < 16; i++) {
+		c8.reg.V[i] = 0x00;
+	}
+	c8.reg.I = 0x4457;
+	c8.reg.PC = 0x0200;
+	c8.reg.SP = 0x0040;
+	c8.reg.DT = 0x00;
+	c8.reg.ST = 0x00;
+}
+
 int initChip8(EFI_BOOT_SERVICES *bs)
 {
 	EFI_STATUS status;
@@ -77,11 +90,7 @@ int initChip8(EFI_BOOT_SERVICES *bs)
 		c8.mem[0x50 + i] = fonts[i];
 	}
 
-	c8.reg.I = 0x4457;
-	c8.reg.PC = 0x0200;
-	c8.reg.SP = 0x0040;
-	c8.reg.DT = 0;
-	c8.reg.ST = 0;
+	resetRegisters();
 
 	status = uefi_call_wrapper(bs->CreateEvent, 5, EVT_NOTIFY_SIGNAL | EVT_TIMER, TPL_CALLBACK, timerEventHandler, NULL, &timerEvent);
 	if (EFI_ERROR(status)) {
@@ -146,26 +155,41 @@ void clearDisplay(void)
 	}
 }
 
-// TODO: Colisão
-// TODO: Wrapping/Cliping
-int drawSprite(uint8_t x, uint8_t y, uint8_t size)
+bool drawSprite(uint8_t x, uint8_t y, uint8_t size)
 {
 	uint8_t posX = c8.reg.V[x];
 	uint8_t posY = c8.reg.V[y];
 
+	bool collision = false;
+
 	for (int i = 0; i < size; i++) {
 		uint8_t sprite_byte = c8.mem[c8.reg.I + i];
 
+		uint16_t pos = DISPLAYPOS(posX, posY);
+		uint8_t mask = 0xff >> posX % 8;
+		uint8_t old_value = c8.mem[pos] & mask;
 		uint8_t byte = sprite_byte >> posX % 8;
-		c8.mem[DISPLAYPOS(posX, posY)] ^= byte;
+		c8.mem[pos] ^= byte;
+		collision = old_value != (c8.mem[pos] & old_value);
 
 		if (posX % 8 != 0) {
+			pos = DISPLAYPOS(posX, posY) + 1;
+			if (pos == 0x0200) {
+				pos = 0x0100;
+			}
+			mask = 0xff << (8 - posX % 8);
+			old_value = c8.mem[pos] & mask;
 			byte = sprite_byte << (8 - posX % 8);
-			c8.mem[DISPLAYPOS(posX, posY) + 1] ^= byte;
+			c8.mem[pos] ^= byte;
+			if (!collision) {
+				collision = old_value != (c8.mem[pos] & old_value);
+			}
 		}
 
 		posY += 1;
 	}
+
+	return collision;
 }
 
 void getChar(uint8_t x) // FX29
@@ -232,7 +256,7 @@ void commandHandleInput(void)
 				return;
 			case (uint16_t) '3':
 				addressBitIndex = 12;
-				c8.reg.PC = 0x0200;
+				resetRegisters();
 				c8.mode = Program;
 				clearDisplay();
 				break;
@@ -378,7 +402,7 @@ void interpret(uint16_t opcode)
 		c8.reg.V[(opcode & 0x0F00) >> 8] = value & (opcode & 0x00FF);
 	}
 	else if ((opcode & 0xF000) == 0xD000) { // SHOW N at VX,VY
-		drawSprite((opcode & 0x0F00) >> 8, (opcode & 0x00F0) >> 4, (opcode & 0x000F));
+		c8.reg.V[0xF] = drawSprite((opcode & 0x0F00) >> 8, (opcode & 0x00F0) >> 4, (opcode & 0x000F)) ? 1 : 0;
 	}
 	else if ((opcode & 0xF0FF) == 0xE09E) { // SKF VX == Key
 		                                     // SIMULATE NO KEY DOWN (DON'T SKIP)
