@@ -7,7 +7,7 @@
 #include "random.h"
 #include "util.h"
 
-#include "zero.h"
+#include "example_programs/zero.h"
 
 #define DISPLAYPOS(x, y) (uint16_t) (0x0100 + (((y * 64 + x) / 8) % 0x0100))
 
