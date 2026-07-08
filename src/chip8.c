@@ -7,9 +7,13 @@
 #include "random.h"
 #include "util.h"
 
-#include "example_programs/zero.h"
+// Available programs:
+// corax+.h flags.h maze.h quirks.h stars.h test.h zero.h
+#include "example_programs/quirks.h"
 
-#define DISPLAYPOS(x, y) (uint16_t) (0x0100 + (((y * 64 + x) / 8) % 0x0100))
+static EFI_BOOT_SERVICES *bootServices = NULL;
+
+#define DISPLAYPOS(x, y) (uint16_t) (0x0100 + (y * 64 + x) / 8)
 
 static const uint8_t fonts[] = {0xF0, 0x90, 0x90, 0x90, 0xF0,
                                 0x20, 0x60, 0x20, 0x20, 0x70,
@@ -76,9 +80,52 @@ void resetRegisters(void)
 	c8.reg.ST = 0x00;
 }
 
+int wait(int msec)
+{
+	EFI_STATUS status;
+	EFI_EVENT waitEvent;
+
+	status = uefi_call_wrapper(bootServices->CreateEvent, 5, EVT_TIMER, TPL_CALLBACK, NULL, NULL, &waitEvent);
+	if (EFI_ERROR(status)) {
+		logInfo(L"CreateEvent(): ");
+		logInfo(hex(status));
+		logInfo(L"\r\n");
+		return -1;
+	}
+
+	status = uefi_call_wrapper(bootServices->SetTimer, 3, waitEvent, TimerRelative, msec * 10'000); // 1 sec (1000ms)
+	if (EFI_ERROR(status)) {
+		logInfo(L"SetTimer(): ");
+		logInfo(hex(status));
+		logInfo(L"\r\n");
+		return -1;
+	}
+
+	UINTN idx;
+	status = uefi_call_wrapper(bootServices->WaitForEvent, 3, 1, &waitEvent, &idx);
+	if (EFI_ERROR(status)) {
+		logInfo(L"WaitForEvent(): ");
+		logInfo(hex(status));
+		logInfo(L"\r\n");
+		return -1;
+	}
+
+	status = uefi_call_wrapper(bootServices->CloseEvent, 1, waitEvent);
+	if (EFI_ERROR(status)) {
+		logInfo(L"CloseEvent(): ");
+		logInfo(hex(status));
+		logInfo(L"\r\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 int initChip8(EFI_BOOT_SERVICES *bs)
 {
 	EFI_STATUS status;
+
+	bootServices = bs;
 
 	c8.mode = Command;
 
@@ -92,21 +139,20 @@ int initChip8(EFI_BOOT_SERVICES *bs)
 
 	resetRegisters();
 
-	status = uefi_call_wrapper(bs->CreateEvent, 5, EVT_NOTIFY_SIGNAL | EVT_TIMER, TPL_CALLBACK, timerEventHandler, NULL, &timerEvent);
+	status = uefi_call_wrapper(bootServices->CreateEvent, 5, EVT_NOTIFY_SIGNAL | EVT_TIMER, TPL_CALLBACK, timerEventHandler, NULL, &timerEvent);
 	if (EFI_ERROR(status)) {
 		logInfo(L"CreateEvent(): ");
 		logInfo(hex(status));
 		logInfo(L"\r\n");
 		return -1;
 	}
-	else {
-		status = uefi_call_wrapper(bs->SetTimer, 3, timerEvent, TimerPeriodic, 166667); // 60Hz
-		if (EFI_ERROR(status)) {
-			logInfo(L"SetTimer(): ");
-			logInfo(hex(status));
-			logInfo(L"\r\n");
-			return -1;
-		}
+
+	status = uefi_call_wrapper(bootServices->SetTimer, 3, timerEvent, TimerPeriodic, 166667); // 60Hz
+	if (EFI_ERROR(status)) {
+		logInfo(L"SetTimer(): ");
+		logInfo(hex(status));
+		logInfo(L"\r\n");
+		return -1;
 	}
 
 	return 0;
@@ -155,41 +201,36 @@ void clearDisplay(void)
 	}
 }
 
-bool drawSprite(uint8_t x, uint8_t y, uint8_t size)
+uint8_t drawSprite(uint8_t x, uint8_t y, uint8_t size)
 {
-	uint8_t posX = c8.reg.V[x];
-	uint8_t posY = c8.reg.V[y];
+	uint8_t posX = c8.reg.V[x] % 64;
+	uint8_t posY = c8.reg.V[y] % 32;
 
-	bool collision = false;
+	uint8_t collision = 0;
 
 	for (int i = 0; i < size; i++) {
+		if (posY >= 32) {
+			break;
+		}
+
 		uint8_t sprite_byte = c8.mem[c8.reg.I + i];
 
 		uint16_t pos = DISPLAYPOS(posX, posY);
-		uint8_t mask = 0xff >> posX % 8;
-		uint8_t old_value = c8.mem[pos] & mask;
 		uint8_t byte = sprite_byte >> posX % 8;
+		collision |= c8.mem[pos] & byte;
 		c8.mem[pos] ^= byte;
-		collision = old_value != (c8.mem[pos] & old_value);
 
-		if (posX % 8 != 0) {
+		if (posX % 8 != 0 && posX < (64 - 8)) {
 			pos = DISPLAYPOS(posX, posY) + 1;
-			if (pos == 0x0200) {
-				pos = 0x0100;
-			}
-			mask = 0xff << (8 - posX % 8);
-			old_value = c8.mem[pos] & mask;
 			byte = sprite_byte << (8 - posX % 8);
+			collision |= c8.mem[pos] & byte;
 			c8.mem[pos] ^= byte;
-			if (!collision) {
-				collision = old_value != (c8.mem[pos] & old_value);
-			}
 		}
 
 		posY += 1;
 	}
 
-	return collision;
+	return collision ? 1 : 0;
 }
 
 void getChar(uint8_t x) // FX29
@@ -356,33 +397,56 @@ void interpret(uint16_t opcode)
 	}
 	else if ((opcode & 0xF00F) == 0x8001) { // VX |= VY
 		c8.reg.V[(opcode & 0x0F00) >> 8] |= c8.reg.V[(opcode & 0x00F0) >> 4];
+		c8.reg.V[0xF] = 0x00;
 	}
 	else if ((opcode & 0xF00F) == 0x8002) { // VX &= VY
 		c8.reg.V[(opcode & 0x0F00) >> 8] &= c8.reg.V[(opcode & 0x00F0) >> 4];
+		c8.reg.V[0xF] = 0x00;
 	}
 	else if ((opcode & 0xF00F) == 0x8003) { // VX ^= VY
 		c8.reg.V[(opcode & 0x0F00) >> 8] ^= c8.reg.V[(opcode & 0x00F0) >> 4];
+		c8.reg.V[0xF] = 0x00;
 	}
 	else if ((opcode & 0xF00F) == 0x8004) { // VX += VY
-		int16_t res = (int16_t) c8.reg.V[(opcode & 0x0F00) >> 8] + (int16_t) c8.reg.V[(opcode & 0x00F0) >> 4];
-		c8.reg.V[0xF] = res > 0xFF;
-		c8.reg.V[(opcode & 0x0F00) >> 8] = res & 0x00FF;
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t y = (opcode & 0x00F0) >> 4;
+		uint8_t res = c8.reg.V[x] + c8.reg.V[y];
+		uint8_t carry = res < MIN(c8.reg.V[x], c8.reg.V[y]);
+
+		c8.reg.V[x] = res;
+		c8.reg.V[0xF] = carry;
 	}
 	else if ((opcode & 0xF00F) == 0x8005) { // VX -= VY
-		c8.reg.V[0xF] = c8.reg.V[(opcode & 0x0F00) >> 8] >= c8.reg.V[(opcode & 0x00F0) >> 4];
-		c8.reg.V[(opcode & 0x0F00) >> 8] -= c8.reg.V[(opcode & 0x00F0) >> 4];
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t y = (opcode & 0x00F0) >> 4;
+		uint8_t carry = c8.reg.V[x] >= c8.reg.V[y];
+
+		c8.reg.V[x] -= c8.reg.V[y];
+		c8.reg.V[0xF] = carry;
 	}
 	else if ((opcode & 0xF00F) == 0x8006) { // VX=SHR(VX), VF
-		c8.reg.V[0xF] = c8.reg.V[(opcode & 0x0F00) >> 8] & 0x01;
-		c8.reg.V[(opcode & 0x0F00) >> 8] /= 2;
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t y = (opcode & 0x00F0) >> 4;
+		uint8_t carry = c8.reg.V[y] & 0x01;
+
+		c8.reg.V[x] = c8.reg.V[y] >> 1;
+		c8.reg.V[0xF] = carry;
 	}
 	else if ((opcode & 0xF00F) == 0x8007) { // VX=VY-VX, VF
-		c8.reg.V[0xF] = c8.reg.V[(opcode & 0x00F0) >> 4] >= c8.reg.V[(opcode & 0x0F00) >> 8];
-		c8.reg.V[(opcode & 0x0F00) >> 8] = c8.reg.V[(opcode & 0x00F0) >> 4] - c8.reg.V[(opcode & 0x0F00) >> 8];
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t y = (opcode & 0x00F0) >> 4;
+		uint8_t carry = c8.reg.V[y] >= c8.reg.V[x];
+
+		c8.reg.V[x] = c8.reg.V[y] - c8.reg.V[x];
+		c8.reg.V[0xF] = carry;
 	}
 	else if ((opcode & 0xF00F) == 0x800E) { // VX=SHL(VX), VF
-		c8.reg.V[0xF] = (c8.reg.V[(opcode & 0x0F00) >> 8] >> 7) & 0x01;
-		c8.reg.V[(opcode & 0x0F00) >> 8] *= 2;
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t y = (opcode & 0x00F0) >> 4;
+		uint8_t carry = (c8.reg.V[y] >> 7) & 0x01;
+
+		c8.reg.V[x] = c8.reg.V[y] << 1;
+		c8.reg.V[0xF] = carry;
 	}
 	else if ((opcode & 0xF00F) == 0x9000) { // SKF VX != VY
 		if (c8.reg.V[(opcode & 0x0F00) >> 8] != c8.reg.V[(opcode & 0x00F0) >> 4]) {
@@ -397,12 +461,19 @@ void interpret(uint16_t opcode)
 		return;
 	}
 	else if ((opcode & 0xF000) == 0xC000) { // VX = RND & KK
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t mask = opcode;
+
 		uint8_t value;
 		randomGetBuffer(&value, sizeof(value));
-		c8.reg.V[(opcode & 0x0F00) >> 8] = value & (opcode & 0x00FF);
+		c8.reg.V[x] = value & mask;
 	}
 	else if ((opcode & 0xF000) == 0xD000) { // SHOW N at VX,VY
-		c8.reg.V[0xF] = drawSprite((opcode & 0x0F00) >> 8, (opcode & 0x00F0) >> 4, (opcode & 0x000F)) ? 1 : 0;
+		uint8_t x = (opcode & 0x0F00) >> 8;
+		uint8_t y = (opcode & 0x00F0) >> 4;
+		uint8_t n = opcode & 0x000F;
+
+		c8.reg.V[0xF] = drawSprite(x, y, n);
 	}
 	else if ((opcode & 0xF0FF) == 0xE09E) { // SKF VX == Key
 		                                     // SIMULATE NO KEY DOWN (DON'T SKIP)
@@ -449,12 +520,14 @@ void interpret(uint16_t opcode)
 	}
 	else if ((opcode & 0xF0FF) == 0xF055) {
 		for (int i = 0; i <= (opcode & 0x0F00) >> 8; i++) {
-			c8.mem[c8.reg.I + i] = c8.reg.V[i];
+			c8.mem[c8.reg.I] = c8.reg.V[i];
+			c8.reg.I += 1;
 		}
 	}
 	else if ((opcode & 0xF0FF) == 0xF065) {
 		for (int i = 0; i <= (opcode & 0x0F00) >> 8; i++) {
-			c8.reg.V[i] = c8.mem[c8.reg.I + i];
+			c8.reg.V[i] = c8.mem[c8.reg.I];
+			c8.reg.I += 1;
 		}
 	}
 
@@ -463,7 +536,7 @@ void interpret(uint16_t opcode)
 
 void runChip8(EFI_BOOT_SERVICES *bs)
 {
-	if (initChip8WithCode(bs, membuffer, membuffer_len) == -1) {
+	if (initChip8WithCode(bs, membuffer, sizeof(membuffer)) == -1) {
 		return;
 	}
 
