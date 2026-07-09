@@ -3,7 +3,7 @@
 
 #include <efi/efi.h>
 
-int initGraphics(EFI_BOOT_SERVICES *bs);
-void setDisplayBuffer(uint8_t *buffer);
+__attribute__((warn_unused_result)) int graphics_init(EFI_BOOT_SERVICES *ebs);
+__attribute__((warn_unused_result)) int graphics_set_display_buffer(uint8_t *buffer, size_t size);   // Always assume it's a 64x32 bitarray
 
 #endif

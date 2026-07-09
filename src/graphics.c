@@ -1,47 +1,53 @@
 #include "graphics.h"
 
-#include "logs.h"
+#include "log.h"
 #include "util.h"
 
 static EFI_GUID EfiGraphicsOutputProtocolGuid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
-static EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
-static EFI_BOOT_SERVICES *bs = NULL;
+static EFI_GRAPHICS_OUTPUT_PROTOCOL *handler = NULL;
+static EFI_BOOT_SERVICES *boot_services = NULL;
 
 static uint32_t pixsz = 0;
 static uint32_t linesize = 0;
 
-int initGraphics(EFI_BOOT_SERVICES *bootServices)
+int graphics_init(EFI_BOOT_SERVICES *ebs)
 {
 	EFI_STATUS status;
 
-	bs = bootServices;
+	boot_services = ebs;
 
-	status = uefi_call_wrapper(bs->LocateProtocol, 3, &EfiGraphicsOutputProtocolGuid, NULL, &gop);
+	status = uefi_call_wrapper(boot_services->LocateProtocol, 3, &EfiGraphicsOutputProtocolGuid, NULL, &handler);
 	if (EFI_ERROR(status)) {
-		logInfo(L"LocateProtocol(): ");
-		logInfo(hex(status));
-		logInfo(L"\r\n");
+		log_info(L"[graphics.c] LocateProtocol(): ");
+		log_info(hex(status));
+		log_info(L"\r\n");
 		return -1;
 	}
-	else if (gop == NULL) {
-		logInfo(L"LocateProtocol(): Success, but interface is NULL...\r\n");
+	else if (handler == NULL) {
+		log_info(L"[graphics.c] LocateProtocol(): Success, but interface is NULL...\r\n");
 		return -1;
 	}
 
-	uint32_t width = gop->Mode->Info->HorizontalResolution;
-	uint32_t height = gop->Mode->Info->VerticalResolution;
+	uint32_t width = handler->Mode->Info->HorizontalResolution;
+	uint32_t height = handler->Mode->Info->VerticalResolution;
 	pixsz = (width / 2 < height) ? width / 64 : height / 32;
-	linesize = gop->Mode->Info->PixelsPerScanLine;
+	linesize = handler->Mode->Info->PixelsPerScanLine;
 
 	return 0;
 }
 
-void setDisplayBuffer(uint8_t *buffer)
+int graphics_set_display_buffer(uint8_t *buffer, size_t size)
 {
 	static const uint32_t WHITE = 0x00ffffff;
 	static const uint32_t BLACK = 0x00000000;
 
-	uint32_t *framebuffer = (uint32_t *) gop->Mode->FrameBufferBase;
+	EFI_STATUS status;
+
+	if (size != (64 * 32) / 8) {
+		return -1;
+	}
+
+	uint32_t *frame_buffer = (uint32_t *) handler->Mode->FrameBufferBase;
 
 	for (int y = 0; y < 32; y++) {
 		uint32_t line[64 * pixsz];
@@ -49,13 +55,21 @@ void setDisplayBuffer(uint8_t *buffer)
 			uint8_t pixelByte = buffer[(y * 64 + x) / 8];
 			uint8_t mask = 1 << (7 - (x & 7));
 			uint32_t color = pixelByte & mask ? WHITE : BLACK;
-			for (int i = 0; i < pixsz; i++) {
+			for (uint32_t i = 0; i < pixsz; i++) {
 				line[(x * pixsz) + i] = color;
 			}
 		}
 
-		for (int i = 0; i < pixsz; i++) {
-			uefi_call_wrapper(bs->CopyMem, 3, &framebuffer[((y * pixsz) + i) * linesize], line, sizeof(line));
+		for (uint32_t i = 0; i < pixsz; i++) {
+			status = uefi_call_wrapper(boot_services->CopyMem, 3, &frame_buffer[((y * pixsz) + i) * linesize], line, sizeof(line));
+			if (EFI_ERROR(status)) {
+				log_info(L"[graphics.c] LocateProtocol(): ");
+				log_info(hex(status));
+				log_info(L"\r\n");
+				return -1;
+			}
 		}
 	}
+
+	return 0;
 }

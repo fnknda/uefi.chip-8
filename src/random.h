@@ -3,8 +3,8 @@
 
 #include <efi/efi.h>
 
-int initRandom(EFI_BOOT_SERVICES *bs);
+__attribute__((warn_unused_result)) int random_init(EFI_BOOT_SERVICES *ebs);
 
-int randomGetBuffer(UINT8 *dst, UINTN size);
+__attribute__((warn_unused_result)) int random_get_buffer(UINT8 *dst, UINTN size);
 
 #endif

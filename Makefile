@@ -1,5 +1,7 @@
 CC = gcc
 CFLAGS = -O2 \
+			-Wall \
+			-Wextra \
 			-fpic \
 			-ffreestanding \
 			-fno-stack-protector \
@@ -17,7 +19,7 @@ LDFLAGS = -shared \
 			 /usr/lib/crt0-efi-x86_64.o
 LDLIBS = -lgnuefi -lefi
 
-.PHONY: all run debug tags
+.PHONY: all run debug format
 all: disk.img tags boot.so.debug
 
 run: disk.img
@@ -34,7 +36,10 @@ debug: disk.img
 		-device virtio-rng-pci \
 		-m 1G -s -S
 
-tags:
+format:
+	find src/ -name *.c -o -name *.h -exec clang-format --verbose -i {} \;
+
+tags: $(wildcard src/**/*)
 	ctags src/*
 
 disk.img: src/boot.efi
@@ -55,11 +60,11 @@ src/boot.efi: src/boot.so
 boot.so.debug: src/boot.so
 	objcopy --only-keep-debug $^ $@
 
-src/boot.so: src/util.o src/boot.o src/graphics.o src/debug.o src/random.o src/input.o src/logs.o src/chip8.o
+src/boot.so: src/util.o src/boot.o src/graphics.o src/debug.o src/random.o src/input.o src/time.o src/log.o src/chip8.o
 	$(LD) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 src/boot.o: src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-src/util.o src/graphics.o src/debug.o src/random.o src/input.o src/logs.o src/chip8.o: src/%.o: src/%.c src/%.h
+src/util.o src/graphics.o src/debug.o src/random.o src/input.o src/time.o src/log.o src/chip8.o: src/%.o: src/%.c src/%.h
 	$(CC) $(CFLAGS) -c $< -o $@

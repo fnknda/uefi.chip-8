@@ -1,52 +1,63 @@
 #include "input.h"
 
-#include "logs.h"
+#include "log.h"
 #include "util.h"
 
-static EFI_GUID UsbIoProtocolGuid = EFI_USB_IO_PROTOCOL_GUID;
-static EFI_USB_IO_PROTOCOL *usb = NULL;
+SIMPLE_INPUT_INTERFACE *input_interface = NULL;
+EFI_BOOT_SERVICES *boot_services = NULL;
 
-SIMPLE_INPUT_INTERFACE *defaultInput = NULL;
-EFI_BOOT_SERVICES *bootServices = NULL;
-
-void initInput(SIMPLE_INPUT_INTERFACE *in, EFI_BOOT_SERVICES *bs)
+void input_init(SIMPLE_INPUT_INTERFACE *sii, EFI_BOOT_SERVICES *ebs)
 {
-	defaultInput = in;
-	bootServices = bs;
+	input_interface = sii;
+	boot_services = ebs;
 }
 
-void resetInput(void)
+int input_reset(void)
 {
 	EFI_STATUS status;
-	status = uefi_call_wrapper(defaultInput->Reset, 2, defaultInput, FALSE);
+	status = uefi_call_wrapper(input_interface->Reset, 2, input_interface, FALSE);
 	if (EFI_ERROR(status)) {
-		logInfo(L"Reset(): ");
-		logInfo(hex(status));
-		logInfo(L"\r\n");
+		log_info(L"[input.c] Reset(): ");
+		log_info(hex(status));
+		log_info(L"\r\n");
+		return -1;
 	}
+
+	return 0;
 }
 
-EFI_INPUT_KEY nextInput(void)
+int input_get_key(InputKey *key)
 {
 	EFI_STATUS status;
-	EFI_INPUT_KEY key = {-1, -1};
 
 	UINTN eventIndex;
-	status = uefi_call_wrapper(bootServices->WaitForEvent, 3, 1, &defaultInput->WaitForKey, &eventIndex);
+	status = uefi_call_wrapper(boot_services->WaitForEvent, 3, 1, &input_interface->WaitForKey, &eventIndex);
 	if (EFI_ERROR(status)) {
-		logInfo(L"WaitForEvent(): ");
-		logInfo(hex(status));
-		logInfo(L"\r\n");
-		return key;
+		log_info(L"[input.c] WaitForEvent(): ");
+		log_info(hex(status));
+		log_info(L"\r\n");
+		return -1;
 	}
 
-	status = uefi_call_wrapper(defaultInput->ReadKeyStroke, 2, defaultInput, &key);
-	if (EFI_ERROR(status)) {
-		logInfo(L"ReadKeyStroke(): ");
-		logInfo(hex(status));
-		logInfo(L"\r\n");
-		return key;
+	if (key == NULL) {
+		return 0;
 	}
 
-	return key;
+	EFI_INPUT_KEY efi_key;
+	status = uefi_call_wrapper(input_interface->ReadKeyStroke, 2, input_interface, &efi_key);
+	if (EFI_ERROR(status)) {
+		log_info(L"[input.c] ReadKeyStroke(): ");
+		log_info(hex(status));
+		log_info(L"\r\n");
+		return -1;
+	}
+
+	if (efi_key.ScanCode == 0x0000) {
+		*key = (uint8_t) efi_key.UnicodeChar;
+	}
+	else {
+		*key = (uint8_t) efi_key.ScanCode | 0x80;
+	}
+
+	return 0;
 }

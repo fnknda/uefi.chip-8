@@ -4,35 +4,46 @@
 #include "debug.h"
 #include "graphics.h"
 #include "input.h"
-#include "logs.h"
+#include "log.h"
 #include "random.h"
+#include "time.h"
 #include "util.h"
 
-EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+EFI_STATUS EFIAPI efi_main([[maybe_unused]] EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 {
-	initLogs(SystemTable->ConOut);
+	EFI_STATUS return_status = EFI_SUCCESS;
 
-	initInput(SystemTable->ConIn, SystemTable->BootServices);
+	log_init(SystemTable->ConOut);
 
-	if (initDebug(SystemTable->BootServices) != 0) {
-		logInfo(L"[ERROR] Could not init debug\r\n");
+	time_init(SystemTable->BootServices);
+
+	input_init(SystemTable->ConIn, SystemTable->BootServices);
+
+	if (debug_init(SystemTable->BootServices) != 0) {
+		log_info(L"[ERROR] Could not init debug\r\n");
+		return_status = -1;
 		goto end;
 	}
 
-	if (initRandom(SystemTable->BootServices) != 0) {
-		logInfo(L"[ERROR] Could not init random\r\n");
+	if (random_init(SystemTable->BootServices) != 0) {
+		log_info(L"[ERROR] Could not init random\r\n");
+		return_status = -1;
 		goto end;
 	}
 
-	if (initGraphics(SystemTable->BootServices) != 0) {
-		logInfo(L"[ERROR] Could not init graphics\r\n");
+	if (graphics_init(SystemTable->BootServices) != 0) {
+		log_info(L"[ERROR] Could not init graphics\r\n");
+		return_status = -1;
 		goto end;
 	}
 
-	runChip8(SystemTable->BootServices);
+	if (chip8_run() == -1) {
+		log_info(L"[ERROR] Chip8 failed mid-run\r\n");
+		return_status = -1;
+	}
 
 end:
-	logInfo(L"Exiting... Press any key to continue.");
-	nextInput();
-	return EFI_SUCCESS;
+	log_info(L"Exiting... Press any key to continue.");
+	(void) !input_get_key(NULL);
+	return return_status;
 }
